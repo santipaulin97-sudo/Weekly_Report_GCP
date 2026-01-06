@@ -36,5 +36,6 @@ Visual Alerts: 🔴 Red/Green indicators for positive/negative trends.
 Rate Cards: Summary of contractual costs applied.
 
 🧬 Workflow Architecture
+
 <img width="1212" height="629" alt="Captura de pantalla 2026-01-06 100608" src="https://github.com/user-attachments/assets/cc986acd-9117-4202-8f4d-003ebf213f70" />
 
