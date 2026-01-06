@@ -1,0 +1,411 @@
+{
+  "name": "Reporte Quincenal de Tendencias Operativas",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtDay": [
+                1
+              ],
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "272b7886-750b-4bb4-960b-9eb84a633d72",
+      "name": "Cron: Quincenal",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [
+        -176,
+        64
+      ],
+      "typeVersion": 1.1,
+      "notes": "Se ejecuta cada 2 semanas para revisar tendencias."
+    },
+    {
+      "parameters": {
+        "numberInputs": 7
+      },
+      "id": "0e577b49-7688-48b4-90a5-1cbafee9ce5d",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "position": [
+        864,
+        32
+      ],
+      "typeVersion": 3.2
+    },
+    {
+      "parameters": {
+        "projectId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "your-gcp-project-id"
+        },
+        "sqlQuery": "WITH callbacks_data AS (\n  SELECT\n    CASE JSON_VALUE(BODY_REQUEST, '$.serviceCode')\n      WHEN 'CODE_001' THEN 'Service Type A'\n      WHEN 'CODE_002' THEN 'Service Type B'\n      WHEN 'CODE_003' THEN 'Service Type C'\n      ELSE COALESCE(CONCAT(JSON_VALUE(BODY_REQUEST, '$.serviceCode'), ' - Other'), 'Other')\n    END AS SERVICIO,\n    JSON_VALUE(BODY_REQUEST, '$.id') event_id,\n    TIMESTAMP(JSON_VALUE(BODY_REQUEST, '$.createdAt')) fecha,\n    TYPE_CALLBACK tipo\n  FROM `your-gcp-project-id.your_dataset.operational_events_table`\n  WHERE BODY_REQUEST IS NOT NULL\n)\nSELECT\n  SERVICIO,\n  TIPO,\n  COUNT(*) AS TOTAL_CALLBACKS,\n  COUNT(DISTINCT event_id) AS IDS_UNICOS\nFROM callbacks_data\nWHERE fecha >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 15 DAY)\nGROUP BY SERVICIO, TIPO\nORDER BY TOTAL_CALLBACKS DESC;",
+        "options": {}
+      },
+      "id": "9c513fc9-630a-40af-88f1-c7d955031943",
+      "name": "Detectar \"Ruido\" vs. \"Realidad\":",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "position": [
+        224,
+        -272
+      ],
+      "typeVersion": 2.1,
+      "credentials": {
+        "googleGenericOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Google BigQuery Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "projectId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "your-gcp-project-id"
+        },
+        "sqlQuery": "WITH service_data AS (\n  SELECT\n    DATE_TRUNC(TIMESTAMP(JSON_VALUE(BODY_REQUEST, '$.createdAt')), WEEK) AS SEMANA,\n    CASE JSON_VALUE(BODY_REQUEST, '$.serviceCode')\n      WHEN 'CODE_001' THEN 'Service A ($0.XX)'\n      WHEN 'CODE_002' THEN 'Service B ($0.XX)'\n      WHEN 'CODE_003' THEN 'Service C ($0.XX)'\n      ELSE COALESCE(JSON_VALUE(BODY_REQUEST, '$.serviceCode'), 'Other')\n    END AS SERVICIO,\n    COUNT(*) AS cantidad_total\n  FROM `your-gcp-project-id.your_dataset.operational_events_table`\n  WHERE TYPE_CALLBACK = 'SERVICE_TYPE' \n    AND BODY_REQUEST IS NOT NULL\n    AND TIMESTAMP(JSON_VALUE(BODY_REQUEST, '$.createdAt')) >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 28 DAY)\n  GROUP BY 1, 2\n)\nSELECT\n  SEMANA,\n  SERVICIO,\n  CANTIDAD_TOTAL,\n  LAG(cantidad_total) OVER (PARTITION BY SERVICIO ORDER BY semana) AS SEMANA_ANTERIOR,\n  ROUND(SAFE_DIVIDE(cantidad_total - LAG(cantidad_total) OVER (PARTITION BY SERVICIO ORDER BY SEMANA), LAG(cantidad_total) OVER (PARTITION BY SERVICIO ORDER BY SEMANA)) * 100, 1) AS VARIACION_PCT\nFROM service_data\nORDER BY SEMANA DESC, CANTIDAD_TOTAL DESC;",
+        "options": {}
+      },
+      "id": "d8d93802-6cca-487f-93eb-2d7202d88c65",
+      "name": "Análisis de Tendencias y Variación Semanal",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "position": [
+        224,
+        -112
+      ],
+      "typeVersion": 2.1,
+      "credentials": {
+        "googleGenericOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Google BigQuery Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "projectId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "your-gcp-project-id"
+        },
+        "sqlQuery": "SELECT \n  DATE(TIMESTAMP(JSON_VALUE(BODY_REQUEST, '$.createdAt'))) AS FECHA,\n  COUNT(*) AS TOTAL_EVENTOS,\n  COUNT(DISTINCT JSON_VALUE(BODY_REQUEST, '$.orderNo')) AS ORDENES_UNICAS\nFROM `your-gcp-project-id.your_dataset.operational_events_table`\nWHERE TIMESTAMP(JSON_VALUE(BODY_REQUEST, '$.createdAt')) >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 15 DAY)\nGROUP BY 1\nORDER BY 1 DESC;",
+        "options": {}
+      },
+      "id": "ce906c60-5432-48b6-9ba4-316c0e4496bd",
+      "name": "Tablero de Control Diario",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "position": [
+        224,
+        32
+      ],
+      "typeVersion": 2.1,
+      "credentials": {
+        "googleGenericOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Google BigQuery Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "projectId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "your-gcp-project-id"
+        },
+        "sqlQuery": "WITH costos AS (\n  SELECT\n    FORMAT_DATE('%Y-%m', DATE(TIMESTAMP(JSON_VALUE(BODY_REQUEST, '$.createdAt')))) AS MES,\n    \n    -- 1. ETIQUETADO DE SERVICIOS\n    CASE JSON_VALUE(BODY_REQUEST, '$.serviceCode')\n      WHEN 'CODE_001' THEN 'Service A - Description'\n      WHEN 'CODE_002' THEN 'Service B - Description'\n      WHEN 'CODE_003' THEN 'Service C - Description'\n      ELSE CONCAT(JSON_VALUE(BODY_REQUEST, '$.serviceCode'), ' - Other')\n    END AS CODIGO,\n\n    -- 2. ASIGNACIÓN DE PRECIOS (Estimados para evitar $0)\n    CASE JSON_VALUE(BODY_REQUEST, '$.serviceCode')\n      WHEN 'CODE_001' THEN 0.10 \n      WHEN 'CODE_002' THEN 0.05 \n      WHEN 'CODE_003' THEN 0.20 \n      ELSE 0.01 -- Default\n    END AS PRECIO_UNITARIO\n\n  FROM `your-gcp-project-id.your_dataset.operational_events_table`\n  WHERE TYPE_CALLBACK = 'SERVICE_TYPE'\n  AND TIMESTAMP(JSON_VALUE(BODY_REQUEST, '$.createdAt')) >= TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), MONTH)\n)\n\nSELECT\n  MES,\n  CODIGO,\n  COUNT(*) AS CANT, -- Python busca 'CANT'\n  PRECIO_UNITARIO,\n  ROUND(SUM(precio_unitario), 2) AS COSTO_EST_USD -- Python busca 'COSTO_EST_USD'\nFROM costos\nGROUP BY 1, 2, 4\nORDER BY COSTO_EST_USD DESC;",
+        "options": {}
+      },
+      "id": "b27edba4-4a41-4605-a9d0-aa884933e9d0",
+      "name": "Control Financiero",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "position": [
+        224,
+        176
+      ],
+      "typeVersion": 2.1,
+      "credentials": {
+        "googleGenericOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Google BigQuery Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "projectId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "your-gcp-project-id"
+        },
+        "sqlQuery": "SELECT\n  JSON_VALUE(BODY_REQUEST, '$.orderNo') AS ORDEN,\n  COALESCE(\n    JSON_VALUE(BODY_REQUEST, '$.serviceCode'), \n    JSON_VALUE(BODY_REQUEST, '$.exceptionReason'),\n    'Unknown Event'\n  ) AS SERVICIO,\n  COUNT(*) AS REPET,\nMIN(TIMESTAMP(JSON_VALUE(BODY_REQUEST, '$.createdAt'))) AS PRIMERA_VEZ,\nMAX(TIMESTAMP(JSON_VALUE(BODY_REQUEST, '$.createdAt'))) AS ULTIMA_VEZ\nFROM `your-gcp-project-id.your_dataset.operational_events_table`\nWHERE TIMESTAMP(JSON_VALUE(BODY_REQUEST, '$.createdAt')) >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 15 DAY)\n  AND JSON_VALUE(BODY_REQUEST, '$.orderNo') IS NOT NULL \nGROUP BY 1, 2\nHAVING COUNT(*) > 1 \nORDER BY REPET DESC\nLIMIT 10;",
+        "options": {}
+      },
+      "id": "9cb7c56c-7ba6-4484-9858-b18409ae9366",
+      "name": "Repeticiones Anormales",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "position": [
+        224,
+        320
+      ],
+      "typeVersion": 2.1,
+      "credentials": {
+        "googleGenericOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Google BigQuery Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "user@example.com",
+        "subject": "=📊 Reporte de Tendencias Operativas - {{ $json.html_report.includes('Actual') ? 'Corte al ' + new Date().toLocaleDateString('es-ES') : 'Análisis Mensual' }}",
+        "message": "=<html>\n<head>\n  <style>\n    /* Efecto Hover para las tarjetas de KPI */\n    .kpi-card:hover {\n      border-color: #FFE600 !important;\n      box-shadow: 0 6px 12px rgba(0,0,0,0.1) !important;\n      transform: translateY(-2px);\n    }\n  </style>\n</head>\n<body style=\"background-color: #f4f4f4; padding: 20px; font-family: 'Proxima Nova', Arial, sans-serif;\">\n\n  <div style=\"max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.05);\">\n    \n    <div style=\"background-color: #FFE600; padding: 20px; text-align: center;\">\n      <h2 style=\"color: #2D3277; margin: 0; padding: 0;\">Monitor Operativo 📈</h2>\n      <p style=\"color: #2D3277; margin: 5px 0 0 0; font-size: 14px; font-weight: bold;\">\n        Seguimiento de Tendencias Mensuales por Bloques\n      </p>\n    </div>\n\n    <div style=\"padding: 20px;\">\n      <p style=\"color: #666; font-size: 14px; margin-bottom: 20px;\">\n        Hola, este reporte analiza el comportamiento de los <b>Servicios Operativos</b> para detectar desvíos antes del cierre de facturación mensual.\n      </p>\n\n      {{ $json.html_report }}\n      \n    </div>\n\n    <div style=\"background-color: #2D3277; padding: 12px; text-align: center; font-size: 11px; color: #ffffff;\">\n       <b>Fuente: BigQuery Data Warehouse<br>Automated Flow • Operational Efficiency</b> \n    </div>\n\n  </div>\n\n</body>\n</html>\n",
+        "options": {
+          "appendAttribution": false,
+          "ccList": "manager@example.com"
+        }
+      },
+      "id": "5592d467-9c92-4c1c-b8e4-f2d3ed1ca27c",
+      "name": "Enviar email",
+      "type": "n8n-nodes-base.gmail",
+      "position": [
+        1248,
+        112
+      ],
+      "webhookId": "8fa10dcc-06b4-4ebd-99b3-7fa4feab0b85",
+      "typeVersion": 2.1,
+      "credentials": {
+        "googleGenericOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Gmail Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "pythonCode": "# Obtenemos todos los items del Merge\nitems_input = items\n\n# --- VARIABLES DE MÉTRICAS (KPIs) ---\ntotal_gasto_mes = 0.0\n\n# Mapeo de precios para cálculo de diferencia USD\nprices_map = {\n    \"CODE_001\": 0.10,\n    \"CODE_002\": 0.05,\n    \"CODE_003\": 0.20\n}\n\ndef get_service_price(name):\n    for code, p in prices_map.items():\n        if code in name: return p\n    return 0.01 # Precio default\n\ndef get_val(key_name, row_data):\n    for k, v in row_data.items():\n        if k.lower() == key_name.lower(): return v\n    return 0\n\n# --- 1. INICIALIZACIÓN DE LISTAS ---\nlist_tendencia_mensual = [] \nlist_picos = []             \nlist_costos = []            \n\n# --- 2. CLASIFICACIÓN DE DATOS ---\nfor item in items_input:\n    data = item.get('json', {})\n    keys_lower = [k.lower() for k in data.keys()]\n    if 'total_mes_corriente' in keys_lower:\n        list_tendencia_mensual.append(data)\n    elif 'estado_dia' in keys_lower:\n        list_picos.append(data)\n    elif 'costo_est_usd' in keys_lower:\n        list_costos.append(data)\n        total_gasto_mes += float(get_val('costo_est_usd', data) or 0)\n\n# --- 3. DISEÑO CSS ---\ncss_table = \"width: 100%; border-collapse: collapse; font-size: 13px; color: #444; margin-bottom: 25px;\"\ncss_th = \"background-color: #f8f9fa; text-align: center; padding: 10px; border: 1px solid #eee; font-size: 11px; color: #666; text-transform: uppercase;\"\ncss_td = \"padding: 10px; border: 1px solid #eee; text-align: center;\"\ncss_td_left = \"padding: 10px; border: 1px solid #eee; text-align: left; font-weight: bold;\"\nstyle_kpi_card = \"background-color: #ffffff; border: 2px solid #eeeeee; border-radius: 12px; padding: 20px; text-align: center;\"\n\nhtml = \"\"\n\n# --- 4. SECCIÓN 1: KPI Gasto ---\nhtml += f\"\"\"\n<table style='width: 100%; border-spacing: 15px; margin-bottom: 25px;'>\n  <tr>\n    <td class='kpi-card' style='{style_kpi_card}'>\n        <div style='font-size: 11px; color: #999; margin-bottom: 5px; font-weight: bold;'>GASTO ESTIMADO (MES)</div>\n        <div style='font-size: 28px; color: #2D3277; font-weight: bold;'>${round(total_gasto_mes, 2)}</div>\n    </td>\n  </tr>\n</table>\n\"\"\"\n\n# --- 5. SECCIÓN 2: TENDENCIA OPERATIVA ---\nhtml += \"<h3 style='color: #444; font-size: 15px; border-bottom: 2px solid #FFE600; padding-bottom: 5px;'>📅 Tendencia Operativa: Comparativa vs Mes Anterior</h3>\"\nhtml += f\"<table style='{css_table}'>\"\nhtml += f\"<tr><th style='{css_th}'>SERVICIO</th><th style='{css_th}'>01-08</th><th style='{css_th}'>08-15</th><th style='{css_th}'>15-22</th><th style='{css_th}'>22-28</th><th style='{css_th}'>TOTAL ACTUAL</th><th style='{css_th}'>VS MES ANT.</th></tr>\"\n\nfor row in list_tendencia_mensual:\n    try:\n        curr = int(get_val('total_mes_corriente', row) or 0)\n        ant = int(get_val('TOTAL_MES_ANTERIOR', row) or 0)\n    except:\n        curr, ant = 0, 0\n    \n    if ant > 0:\n        pct = round(((curr - ant) / ant) * 100, 1)\n        # Cálculo de diferencia en USD\n        diff_qty = curr - ant\n        p_unit = get_service_price(get_val('servicio', row))\n        diff_usd = round(diff_qty * p_unit, 2)\n        \n        color = \"#D32F2F\" if pct > 0 else \"#388E3C\"\n        signo = \"+\" if pct > 0 else \"\"\n        signo_usd = \"+\" if diff_usd > 0 else \"-\" if diff_usd < 0 else \"\"\n        \n        var_html = f\"\"\"\n            <div style='font-size:10px; color:#999;'>Ant: {ant}</div>\n            <div style='color:{color}; font-weight:bold;'>{signo}{pct}% ({signo_usd}${abs(diff_usd)})</div>\n        \"\"\"\n    else:\n        var_html = \"<span style='color:#999;'>-</span>\"\n\n    html += f\"\"\"<tr>\n        <td style='{css_td_left}'>{get_val('servicio', row)}</td>\n        <td style='{css_td}'>{get_val('Dias_01_al_08', row)}</td>\n        <td style='{css_td}'>{get_val('Dias_08_al_15', row)}</td>\n        <td style='{css_td}'>{get_val('Dias_15_al_22', row)}</td>\n        <td style='{css_td}'>{get_val('Dias_22_al_28', row)}</td>\n        <td style='{css_td}'><b>{curr}</b></td>\n        <td style='{css_td}'>{var_html}</td>\n    </tr>\"\"\"\nhtml += \"</table>\"\n\n# --- 6. SECCIÓN 3: TARIFAS DE EJEMPLO ---\nhtml += f\"\"\"\n<h3 style='color: #444; font-size: 15px; border-bottom: 2px solid #FFE600; padding-bottom: 5px;'>💰 Tarifas Contractuales (Ejemplo)</h3>\n<table style='{css_table}'>\n    <tr><th style='{css_th}'>Código</th><th style='{css_th}'>Servicio</th><th style='{css_th}'>Precio Unitario</th></tr>\n    <tr><td style='{css_td}'>CODE_001</td><td style='{css_td}'>Service A</td><td style='{css_td}'>$0.10</td></tr>\n    <tr><td style='{css_td}'>CODE_002</td><td style='{css_td}'>Service B</td><td style='{css_td}'>$0.05</td></tr>\n</table>\n\"\"\"\n\n# --- 7. SECCIÓN 4: PICOS DIARIOS ---\ndias_pico = [d for d in list_picos if \"🟢\" not in str(get_val('estado_dia', d))]\nif dias_pico:\n    html += \"<h3 style='color: #D32F2F; font-size: 15px;'>📉 Historial de Picos Diarios</h3>\"\n    html += \"<div style='background-color: #fffaf0; color: #856404; padding: 15px; border-radius: 8px; border: 1px solid #ffeeba;'>\"\n    for d in dias_pico:\n        html += f\"• <b>{get_val('fecha', d)}:</b> {get_val('total_eventos', d)} eventos - {get_val('estado_dia', d)}<br>\"\n    html += \"</div>\"\n\nhtml += \"<p style='font-size: 10px; color: #999; font-style: italic; margin-top: 15px;'>⚠️ Nota: Datos generados automáticamente por el sistema de monitoreo.</p>\"\n\nreturn {\"html_report\": html}"
+      },
+      "id": "9dcd6371-1bca-4ec1-9b5d-dada7d1d8ce9",
+      "name": "Python Code",
+      "type": "n8n-nodes-base.verdiCode",
+      "position": [
+        1056,
+        112
+      ],
+      "typeVersion": 1,
+      "notes": "Convierte el JSON de BQ en Tabla HTML"
+    },
+    {
+      "parameters": {
+        "projectId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "your-gcp-project-id"
+        },
+        "sqlQuery": "WITH traducciones AS (\n  SELECT \n    TIMESTAMP(JSON_VALUE(BODY_REQUEST, '$.createdAt')) AS fecha,\n    JSON_VALUE(BODY_REQUEST, '$.exceptionReason') AS razon_original,\n    CASE \n      WHEN JSON_VALUE(BODY_REQUEST, '$.exceptionReason') LIKE '%error_code_1%' THEN '⚠️ Alert Type A (No ASN)'\n      WHEN JSON_VALUE(BODY_REQUEST, '$.exceptionReason') LIKE '%error_code_2%' THEN '📉 Alert Type B (Shortage)'\n      WHEN JSON_VALUE(BODY_REQUEST, '$.exceptionReason') LIKE '%error_code_3%' THEN '📈 Alert Type C (Overage)'\n      ELSE COALESCE(JSON_VALUE(BODY_REQUEST, '$.exceptionReason'), 'Unknown Reason')\n    END AS problema_espanol,\n    sku_item\n  FROM \n    `your-gcp-project-id.your_dataset.operational_events_table`,\n    UNNEST(JSON_EXTRACT_ARRAY(BODY_REQUEST, '$.skuList')) AS sku_item\n  WHERE \n    TYPE_CALLBACK = 'EXCEPTION' \n    AND TIMESTAMP(JSON_VALUE(BODY_REQUEST, '$.createdAt')) >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 15 DAY)\n)\nSELECT \n  problema_espanol AS TIPO_ERROR,\n  COUNT(*) AS CANTIDAD_EVENTOS,\n  ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1) AS PORCENTAJE_IMPACTO,\n  ARRAY_AGG(DISTINCT JSON_VALUE(sku_item, '$.skuCode') LIMIT 3) AS EJEMPLOS_SKUS\nFROM traducciones\nGROUP BY 1\nORDER BY 2 DESC;",
+        "options": {}
+      },
+      "id": "59c0988f-13ea-4308-b568-8b7046a6009d",
+      "name": "Analisis de Excepciones",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "position": [
+        224,
+        464
+      ],
+      "typeVersion": 2.1,
+      "credentials": {
+        "googleGenericOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Google BigQuery Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "projectId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "your-gcp-project-id"
+        },
+        "sqlQuery": "WITH base_data AS (\n  SELECT\n    CASE \n      WHEN JSON_VALUE(BODY_REQUEST, '$.serviceCode') = 'CODE_001' THEN 'Service A'\n      WHEN JSON_VALUE(BODY_REQUEST, '$.serviceCode') IN ('CODE_002', 'CODE_003') THEN 'Service B (Grouped)'\n      ELSE COALESCE(JSON_VALUE(BODY_REQUEST, '$.serviceCode'), 'Other')\n    END AS SERVICIO,\n    TIMESTAMP(JSON_VALUE(BODY_REQUEST, '$.createdAt')) AS ts\n  FROM `your-gcp-project-id.your_dataset.operational_events_table`\n  WHERE TYPE_CALLBACK = 'SERVICE_TYPE'\n    AND BODY_REQUEST IS NOT NULL\n    -- Filtra desde el primer día del mes anterior (Lógica corregida)\n    AND TIMESTAMP(JSON_VALUE(BODY_REQUEST, '$.createdAt')) >= TIMESTAMP_TRUNC(TIMESTAMP_SUB(TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), MONTH), INTERVAL 1 DAY), MONTH)\n)\nSELECT\n  SERVICIO,\n  -- Bloques del Mes Actual\n  COUNTIF(ts >= TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), MONTH) AND EXTRACT(DAY FROM DATE(ts)) BETWEEN 1 AND 7) AS Dias_01_al_08,\n  COUNTIF(ts >= TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), MONTH) AND EXTRACT(DAY FROM DATE(ts)) BETWEEN 8 AND 14) AS Dias_08_al_15,\n  COUNTIF(ts >= TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), MONTH) AND EXTRACT(DAY FROM DATE(ts)) BETWEEN 15 AND 21) AS Dias_15_al_22,\n  COUNTIF(ts >= TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), MONTH) AND EXTRACT(DAY FROM DATE(ts)) BETWEEN 22 AND 28) AS Dias_22_al_28,\n  -- Comparativa\n  COUNTIF(ts >= TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), MONTH)) AS TOTAL_MES_CORRIENTE,\n  COUNTIF(ts < TIMESTAMP_TRUNC(CURRENT_TIMESTAMP(), MONTH)) AS TOTAL_MES_ANTERIOR\nFROM base_data\nGROUP BY 1\nORDER BY TOTAL_MES_CORRIENTE DESC",
+        "options": {}
+      },
+      "id": "bd56af33-8f9c-47a9-bbab-333acbef5e72",
+      "name": "Tendencias semanales",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "position": [
+        224,
+        608
+      ],
+      "typeVersion": 2.1,
+      "credentials": {
+        "googleGenericOAuth2Api": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Google BigQuery Account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Python Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Python Code": {
+      "main": [
+        [
+          {
+            "node": "Enviar email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Cron: Quincenal": {
+      "main": [
+        [
+          {
+            "node": "Análisis de Tendencias y Variación Semanal",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Detectar \"Ruido\" vs. \"Realidad\":",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Tablero de Control Diario",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Control Financiero",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Repeticiones Anormales",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Analisis de Excepciones",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Tendencias semanales",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Control Financiero": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Tendencias semanales": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 6
+          }
+        ]
+      ]
+    },
+    "Repeticiones Anormales": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Analisis de Excepciones": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "Tablero de Control Diario": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Detectar \"Ruido\" vs. \"Realidad\":": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Análisis de Tendencias y Variación Semanal": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "b9436022-abbf-4142-9edc-3a16c707e844",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "56ceb0d1cc18e1d20cd56dd8ee4a55e1a5a2cb9bbf733c780a39298149cc4448"
+  },
+  "id": "ADGJWkYach3PKmSa",
+  "tags": []
+}
